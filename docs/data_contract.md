@@ -19,7 +19,7 @@
 | Поле | Тип | Что значит |
 | --- | --- | --- |
 | `timestampMs` | Long | время кадра в миллисекундах, строго растёт |
-| `imageWidth`, `imageHeight` | Int | размер кадра в пикселях, который видела модель, уже повёрнутого вертикально |
+| `imageWidth`, `imageHeight` | Int | размер вертикального кадра в пикселях; если модель видела неповёрнутый кадр, ширину и высоту берём наоборот |
 | `landmarks` | List\<Landmark> или null | 12 точек в порядке таблицы ниже; null, если человек не найден |
 | `Landmark.x`, `Landmark.y` | Float | доля ширины и высоты кадра от 0 до 1; начало в левом верхнем углу, y растёт вниз; точка за краем кадра может выйти за эти границы |
 | `Landmark.z` | Float | глубина от MediaPipe; пока не используем, но передаём |
@@ -52,7 +52,7 @@ MediaPipe находит 33 точки, модуль точек оставляе
 ## Правила для модуля точек
 
 - **Модель.** MediaPipe Pose Landmarker в режиме LIVE\_STREAM, `numPoses = 1`, остальные пороги по умолчанию (0,5). Файл `pose_landmarker_full.task` лежит внутри приложения. `lite` остаётся запасным вариантом для слабых телефонов, решаем после замеров.
-- **Поворот.** Точки в `PoseFrame` даём для вертикально повёрнутого кадра. Если кадр уходит в модель неповёрнутым, точки поворачиваем перед отправкой, а `imageWidth` и `imageHeight` меняем местами: в `PoseFrame` всегда размеры вертикального кадра. Так сделано в [открытом KMP-примере с MediaPipe](https://github.com/sonms/GoogleMediaPipeTest/pull/1).
+- **Поворот.** Точки в `PoseFrame` даём для вертикально повёрнутого кадра. Если кадр уходит в модель неповёрнутым, точки поворачиваем перед отправкой, а при повороте на 90 или 270 градусов `imageWidth` и `imageHeight` меняем местами: в `PoseFrame` всегда размеры вертикального кадра. Так сделано в [открытом KMP-примере с MediaPipe](https://github.com/sonms/GoogleMediaPipeTest/pull/1).
 - **Зеркало.** В модель идёт незеркальный кадр. Фронтальная камера показывает на экране зеркальную картинку, поэтому при рисовании точек поверх превью x заменяем на 1 − x. В самом `PoseFrame` ничего не зеркалим.
 - **Время.** `timestampMs` берём из времени кадра камеры. Время должно строго расти, иначе MediaPipe выдаст ошибку.
 - **Пропущенные кадры.** Пока модель занята, новые кадры она пропускает ([iOS](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/ios)), и для них `PoseFrame` не будет. Это нормально: модуль отжиманий считает по времени.
@@ -90,7 +90,7 @@ enum class BodyPoint(val mediaPipeIndex: Int) {
 /** Кадр от модуля точек. */
 data class PoseFrame(
     val timestampMs: Long,          // время кадра, строго растёт
-    val imageWidth: Int,            // размер кадра, который видела модель
+    val imageWidth: Int,            // размер вертикального кадра
     val imageHeight: Int,
     val landmarks: List<Landmark>?, // 12 точек в порядке BodyPoint или null
 )
@@ -160,7 +160,7 @@ video,frame,time_ms,width,height,detected,left_shoulder_x,left_shoulder_y,left_s
 | `time_ms` | `timestampMs` | целое, строго растёт |
 | `width`, `height` | `imageWidth`, `imageHeight` | целые |
 | `detected` | `landmarks` не null | 1 или 0 |
-| `<точка>_x`, `_y`, `_z`, `_vis`, `_pres` | `Landmark.x`, `y`, `z`, `visibility`, `presence` | дробь через точку, не через запятую (в Kotlin писать с `Locale.ROOT`), до 5 знаков после точки; при `detected = 0` пустые клетки |
+| `<точка>_x`, `_y`, `_z`, `_vis`, `_pres` | `Landmark.x`, `y`, `z`, `visibility`, `presence` | дробь через точку, не через запятую (в Kotlin писать с `Locale.ROOT`), до 5 знаков после точки; очень малые числа могут быть записаны как `3e-05`, это обычная дробь (её понимают `toFloat()` в Kotlin и `float()` в Python); при `detected = 0` пустые клетки |
 
 Файл в кодировке UTF-8, разделитель запятая, первая строка с названиями колонок.
 

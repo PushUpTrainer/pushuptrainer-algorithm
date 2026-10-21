@@ -120,14 +120,34 @@ def read_labels():
     if not LABELS.exists():
         return {}
     #utf-8-sig: Excel и Блокнот иногда пишут в начало файла служебные байты (BOM)
-    with open(LABELS, newline="", encoding="utf-8-sig") as f:
-        table = csv.DictReader(f)
-        if not {"video", "reps"} <= set(table.fieldnames or []):
-            print("Внимание: в data/labels.csv нет колонок video и reps. Первая строка "
-                  "должна быть video,reps,view,light,person, разделитель запятая")
-            return {}
-        return {row["video"].strip(): int(row["reps"]) for row in table
-                if (row["reps"] or "").strip()}
+    try:
+        with open(LABELS, newline="", encoding="utf-8-sig") as f:
+            table = csv.DictReader(f)
+            columns = set(table.fieldnames or [])
+            rows = list(table)
+    except UnicodeDecodeError:
+        print("Внимание: data/labels.csv не в кодировке UTF-8. Сохрани его в UTF-8 "
+              "(PyCharm или Блокнот), разделитель запятая")
+        return {}
+    if not {"video", "reps"} <= columns:
+        print("Внимание: в data/labels.csv нет колонок video и reps. Первая строка "
+              "должна быть video,reps,view,light,person, разделитель запятая")
+        return {}
+
+    labels = {}
+    for row in rows:
+        video, reps = (row["video"] or "").strip(), (row["reps"] or "").strip()
+        if not video or not reps:                    #счёт ещё не вписали
+            continue
+        try:
+            value = float(reps.replace(",", "."))
+        except ValueError:
+            value = None
+        if value is None or not value.is_integer():
+            print(f"Внимание: в data/labels.csv у записи {video} в reps не целое число: {reps}")
+            continue
+        labels[video] = int(value)
+    return labels
 
 
 def csv_files(target):
@@ -146,11 +166,13 @@ def main():
     files = csv_files(Path(args.path))
     if not files:
         print("CSV не найдены:", args.path)
+        print("Записи появляются после запуска python extract_pose.py. "
+              "Без камеры можно взять готовые: python replay_csv.py samples")
         sys.exit(1)
 
+    labels = read_labels()                           #до таблицы, чтобы предупреждения не рвали её
     print(f"{'файл':<40} {'кадров':>7} {'секунд':>7} {'человек':>8} "
           f"{'подсказки':>10} {'повторы':>8} {'вживую':>7} {'факт':>5}")
-    labels = read_labels()
     warnings, errors = [], []
     for path in files:
         result = replay(path)
