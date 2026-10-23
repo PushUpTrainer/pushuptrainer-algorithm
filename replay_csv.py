@@ -157,6 +157,13 @@ def csv_files(target):
     return sorted(target.rglob("*.csv"))
 
 
+def is_record(path):
+    """True, если CSV похож на запись с точками: в шапке есть служебные колонки."""
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        header = next(csv.reader(f), [])
+    return {"video", "frame", "time_ms", "width", "height", "detected"} <= set(header)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Счётчик отжиманий по готовым CSV")
     parser.add_argument("path", nargs="?", default="output/csv",
@@ -168,6 +175,13 @@ def main():
         print("CSV не найдены:", args.path)
         print("Записи появляются после запуска python extract_pose.py. "
               "Без камеры можно взять готовые: python replay_csv.py samples")
+        sys.exit(1)
+    #Например файлы эталона из пакета для мобильщиков: в них нет точек
+    skipped = [path for path in files if not is_record(path)]
+    files = [path for path in files if path not in skipped]
+    for path in skipped:
+        print(f"Пропускаю {path.name}: это не запись с точками")
+    if not files:
         sys.exit(1)
 
     labels = read_labels()                           #до таблицы, чтобы предупреждения не рвали её

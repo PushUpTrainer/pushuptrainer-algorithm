@@ -31,7 +31,7 @@ from importlib import metadata
 from pathlib import Path
 
 import pushup_logic as logic
-from extract_pose import MODEL_URL, get_model
+from extract_pose import MODEL_URL, csv_header, csv_row, get_model
 from replay_csv import read_frames, read_labels
 
 #Версия пакета совпадает с версией контракта данных
@@ -47,6 +47,60 @@ MODELS = ["full", "lite"]
 
 #Колонки эталона: сначала ключ кадра, потом то, что считает модуль отжиманий
 GOLDEN_COLUMNS = ["frame", "time_ms", "signal", "smoothed", "top", "phase", "reps", "hint"]
+
+#Искусственная запись для веток логики, которых нет в настоящих записях
+SYNTHETIC = "synthetic_edge_cases"
+WIDTH, HEIGHT = 640, 480
+
+
+def synthetic_points(signal, shoulders=0.2, wrist_vis=0.95):
+    """12 точек человека лицом к камере с заданным сигналом и шириной плеч в долях кадра."""
+    left_x, right_x = 0.5 + shoulders / 2, 0.5 - shoulders / 2  #левое плечо человека справа
+    shoulder_y = 0.2
+    wrist_y = shoulder_y + signal * shoulders * WIDTH / HEIGHT
+    layout = [(left_x, shoulder_y), (right_x, shoulder_y),
+              (left_x + 0.03, 0.35), (right_x - 0.03, 0.35),
+              (left_x, wrist_y), (right_x, wrist_y),
+              (0.55, 0.6), (0.45, 0.6), (0.55, 0.75), (0.45, 0.75), (0.55, 0.9), (0.45, 0.9)]
+    points = [(x, y, 0.0, 0.95, 0.99) for x, y in layout]
+    for i in (logic.L_WRIST, logic.R_WRIST):
+        points[i] = points[i][:3] + (wrist_vis, 0.99)
+    return points
+
+
+def synthetic_record(path):
+    """
+    Пишет искусственную запись. По порядку: человека нет; слишком близко;
+    скачок сигнала, после которого «верх» завышен и человек считается «внизу»
+    без настоящего повтора (защита от ложного повтора должна его не засчитать);
+    снова нет человека; руки не видны; слишком далеко; один настоящий повтор.
+    Номера кадров идут с разрывами, как в режиме LIVE_STREAM.
+    """
+    parts = ([None] * 10
+             + [synthetic_points(1.4, shoulders=0.8)] * 40
+             + [synthetic_points(3.0)] * 10
+             + [synthetic_points(1.2)] * 200
+             + [None] * 10
+             + [synthetic_points(1.2, wrist_vis=0.3)] * 10
+             + [synthetic_points(1.2, shoulders=0.1)] * 10
+             + [synthetic_points(1.2)] * 20
+             + [synthetic_points(0.5)] * 20
+             + [synthetic_points(1.2)] * 30)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        table = csv.writer(f)
+        table.writerow(csv_header())
+        frame_no = 0
+        for i, points in enumerate(parts):
+            table.writerow(csv_row(SYNTHETIC, frame_no, 1000 + frame_no * 33, WIDTH, HEIGHT, points))
+            frame_no += 2 if i % 7 == 6 else 1       #каждый седьмой кадр модель «пропустила»
+
+
+def coverage(rows):
+    """Что проверяет эталон: подсказки и подъёмы, которые не дали повтор."""
+    hints = {row[7] for row in rows if row[7]}
+    blocked = sum(1 for before, after in zip(rows, rows[1:])
+                  if before[5] == "DOWN" and after[5] == "UP" and after[6] == before[6])
+    return hints, blocked
 
 
 def number(value):
@@ -91,11 +145,16 @@ def git_state():
     return commit, bool(dirty)
 
 
+def megabytes(size):
+    """Размер файла в мегабайтах через запятую, как в остальных документах."""
+    return f"{size / 1e6:.1f}".replace(".", ",")
+
+
 def readme(commit, dirty, models, samples, labels):
     """Текст README.md пакета."""
     built = date.today().isoformat()
     source = "нет git" if commit is None else commit + (", с незакоммиченными правками" if dirty else "")
-    model_rows = "\n".join(f"| `models/{name}` | {size / 1e6:.1f} МБ | `{digest}` |"
+    model_rows = "\n".join(f"| `models/{name}` | {megabytes(size)} МБ | `{digest}` |"
                            for name, size, digest in models)
     sample_rows = "\n".join(
         f"| `samples/{name}.csv` | `golden/{name}.expected.csv` | {frames} | {reps} | "
@@ -120,9 +179,11 @@ def readme(commit, dirty, models, samples, labels):
 | `pushup_logic.py` | эталон модуля отжиманий: сигнал, сглаживание, пороги, подсказки. Его логику переносите в `commonMain` |
 | `replay_csv.py` | прогоняет эталон по CSV с телефона и предупреждает о повёрнутом или зеркальном кадре |
 | `models/` | файлы моделей MediaPipe, на которых работаем мы. Кладите в приложение именно их |
-| `samples/` | записи с веб-камеры в формате контракта: 66 колонок, строка на кадр |
+| `samples/` | записи в формате контракта: 66 колонок, строка на кадр. Две настоящие записи с веб-камеры (альбомный кадр 640 на 480) и одна искусственная `{SYNTHETIC}.csv` для случаев, которых в настоящих нет |
 | `golden/` | ответы эталона по каждому кадру записей из `samples/`, для автотестов Kotlin |
 | `SHA256SUMS.txt` | контрольные суммы всех файлов пакета |
+
+В документах встречаются `extract_pose.py`, `make_mobile_package.py`, `data/labels.csv` и `output/`: они есть только в репозитории ML-части, вам не нужны.
 
 ## Модели
 
@@ -132,7 +193,7 @@ def readme(commit, dirty, models, samples, labels):
 | --- | --- | --- |
 {model_rows}
 
-Ссылка, откуда скачаны: `{MODEL_URL.format(m="<full или lite>")}`. На компьютере их запускает MediaPipe для Python версии {metadata.version("mediapipe")} в режиме LIVE\\_STREAM, `numPoses = 1`, остальные пороги по умолчанию.
+Ссылка, откуда скачаны: `{MODEL_URL.format(m="<full или lite>")}`. На компьютере их запускает MediaPipe для Python версии {metadata.version("mediapipe")} в режиме LIVE\\_STREAM, `numPoses = 1`, остальные пороги по умолчанию. На Android и iOS берите выпуск библиотеки MediaPipe с тем же номером, если он есть, одинаковый на обеих платформах, и пишите номер выпуска в `.meta.json` режима отладки (ниже): разные выпуски могут давать немного разные точки.
 
 ## Эталон для автотестов Kotlin
 
@@ -142,8 +203,8 @@ def readme(commit, dirty, models, samples, labels):
 | --- | --- |
 | `frame`, `time_ms` | номер и время кадра, как в записи: по ним удобно сверять строки |
 | `signal` | сигнал кадра: насколько плечи выше запястий, в ширинах плеч (`shoulder_height`). Пусто, если плечи или запястья видны хуже порога |
-| `smoothed` | сглаженный сигнал (медиана последних значений). Пусто, пока сигнала не было ни разу |
-| `top` | «верх»: самое большое сглаженное значение в окне. Пусто, пока сигнала не было ни разу |
+| `smoothed` | сглаженный сигнал: медиана последних `SMOOTH_WINDOW` значений сигнала точно как в коде, `sorted(values)[len(values) // 2]`. Пока значений чётное число, это большее из двух средних, а не их среднее. Пусто, пока сигнала не было ни разу |
+| `top` | «верх»: самое большое сглаженное значение за последние `TOP_WINDOW` кадров с сигналом (кадр без сигнала окно не сдвигает). Пусто, пока сигнала не было ни разу |
 | `phase` | `UP` или `DOWN`, как `Phase` в контракте |
 | `reps` | сколько повторов насчитано к этому кадру |
 | `hint` | подсказка как `Hint` в контракте: `NO_PERSON`, `ARMS_HIDDEN`, `TOO_FAR`, `TOO_CLOSE`. Пусто, если с кадром всё хорошо |
@@ -152,9 +213,17 @@ def readme(commit, dirty, models, samples, labels):
 | --- | --- | --- | --- | --- |
 {sample_rows}
 
-Как пользоваться: автотест в `commonTest` читает запись из `samples/`, превращает каждую строку в `PoseFrame` (как в разделе «CSV для сверки телефона и компьютера» контракта), отдаёт кадры Kotlin-модулю по порядку и после каждого кадра сравнивает его ответ со строкой эталона. `phase`, `reps` и `hint` должны совпасть точно, `signal`, `smoothed` и `top` с точностью 0,0001. Первая строка, где ответ разошёлся, показывает, какой шаг перенесён не так.
+Как пользоваться: автотест в `commonTest` читает запись из `samples/`, превращает каждую строку в `PoseFrame` (числа читаются в `Float`, как в контракте; формат в разделе «CSV для сверки телефона и компьютера»), отдаёт кадры Kotlin-модулю по порядку и после каждого кадра сравнивает его ответ со строкой эталона:
 
-Внутри модуля отжиманий считайте в `Double`: эталон считает в 64-битных дробях, и на кадрах у самого порога 32-битный `Float` может дать другую фазу.
+- `phase`, `reps` и `hint` должны совпасть точно;
+- `signal`, `smoothed` и `top` с допуском: разница не больше 0,0001, умноженного на большее из двух чисел, 1 и модуля значения эталона. Допуск растёт с числом, потому что на кадрах с очень узкими плечами (человек боком к камере) сигнал доходит до 68, и округление `Float` при чтении точек даёт там разницу около 0,0004;
+- пустая клетка эталона значит, что значения нет, и у Kotlin-модуля его тоже не должно быть.
+
+Первая строка, где ответ разошёлся, показывает, какой шаг перенесён не так. Внутри модуля считайте в `Double` и переводите точки в `Double` до любых вычислений.
+
+`signal`, `smoothed` и `top` это внутренние значения модуля отжиманий: в `PushupState` их не добавляем, контракт не меняется. Для автотеста модуль отдаёт их через отдельное отладочное свойство, которое видят только тесты, а экран им не пользуется.
+
+Искусственная запись `{SYNTHETIC}.csv` проверяет то, чего нет в настоящих: подсказку `TOO_CLOSE`, разрывы в номерах кадров (как в LIVE\\_STREAM) и защиту от ложного повтора. После резкого скачка сигнала «верх» завышен, и человек считается «внизу». Когда скачок уходит из окна, фаза снова `UP`, но повтор не засчитывается: внизу сигнал не опускался ниже порога от нового «верха». Если Kotlin-модуль засчитывает повтор на каждом переходе `DOWN` в `UP`, на этой записи он насчитает на один больше.
 
 Эталон описывает текущую, ещё не финальную версию счётчика: окна в нём пока в кадрах, а в финальной будут в миллисекундах. Когда аналитик закончит эксперименты, пакет пересоберём, и эталон обновится. Повторов у эталона на первой записи меньше, чем на самом деле: это известная ошибка базового счётчика, переносить нужно поведение эталона, а не правильный счёт.
 
@@ -166,7 +235,9 @@ def readme(commit, dirty, models, samples, labels):
 python replay_csv.py <файл с телефона>.csv
 ```
 
-Нужен только Python 3, ничего ставить не надо: `replay_csv.py` и `pushup_logic.py` используют одну стандартную библиотеку. Счёт должен совпасть со счётом телефона, а предупреждений про поворот и зеркало быть не должно.
+На Mac команда обычно `python3`, а не `python`. Нужен только Python 3, ничего ставить не надо: `replay_csv.py` и `pushup_logic.py` используют одну стандартную библиотеку. Можно передать и папку: файлы эталона из `golden/` скрипт пропустит, это не записи.
+
+Счёт должен совпасть со счётом телефона, а предупреждений про поворот и зеркало быть не должно. Удобно, если режим отладки рядом с `<video>.csv` пишет `<video>.meta.json`, например `{{"video": "phone_001", "model": "full", "mediapipe": "<номер выпуска>", "reps_counted": 7}}`. Тогда `replay_csv.py` сам покажет счёт телефона в колонке «вживую» рядом со своим в колонке «повторы». Колонка «факт» нужна только аналитику, у вас она будет пустой.
 
 ## К кому с вопросами
 
@@ -208,9 +279,13 @@ def main():
         models.append((path.name, path.stat().st_size, sha256(path)))
 
     labels = read_labels()
-    samples = []
+    labels[SYNTHETIC] = "1, так задумано"
     for path in sorted((ROOT / "samples").glob("*.csv")):
         shutil.copy2(path, folder / "samples" / path.name)
+    synthetic_record(folder / "samples" / f"{SYNTHETIC}.csv")
+
+    samples, hints, blocked = [], set(), 0
+    for path in sorted((folder / "samples").glob("*.csv")):
         rows = golden_rows(path)
         with open(folder / "golden" / f"{path.stem}.expected.csv", "w", newline="",
                   encoding="utf-8") as f:
@@ -218,6 +293,17 @@ def main():
             table.writerow(GOLDEN_COLUMNS)
             table.writerows(rows)
         samples.append((path.stem, len(rows), rows[-1][6] if rows else 0))
+        found, stopped = coverage(rows)
+        hints |= found
+        blocked += stopped
+
+    #Эталон должен проверять все подсказки и защиту от ложного повтора
+    missing = {"NO_PERSON", "ARMS_HIDDEN", "TOO_FAR", "TOO_CLOSE"} - hints
+    synthetic_reps = {name: reps for name, _, reps in samples}[SYNTHETIC]
+    if missing or not blocked or synthetic_reps != 1:
+        print(f"Эталон неполный: нет подсказок {sorted(missing)}, подъёмов без повтора {blocked}, "
+              f"повторов в искусственной записи {synthetic_reps} вместо 1")
+        sys.exit(1)
 
     (folder / "README.md").write_text(readme(commit, dirty, models, samples, labels),
                                       encoding="utf-8", newline="\n")
