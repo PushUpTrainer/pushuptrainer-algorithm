@@ -55,7 +55,8 @@ ESC = 27
 FONT_PATH = Path(matplotlib.get_data_path()) / "fonts" / "ttf" / "DejaVuSans-Bold.ttf"
 
 #Цвета в порядке OpenCV: синий, зелёный, красный
-GREEN = (0, 255, 0)
+ORANGE = (0, 140, 255)  #точки скелета, ярко-оранжевые
+DARK_GRAY = (60, 60, 60)  #линии скелета, тёмно-серые
 RED = (0, 0, 255)
 YELLOW = (0, 255, 255)
 WHITE = (255, 255, 255)
@@ -134,23 +135,25 @@ def draw(frame, points, reps, hint, fps):
     height, width = frame.shape[:2]
     scale = width / 800                              #размеры под размер кадра
     thick = max(2, int(3 * scale))
+    line = 3 * thick                                 #линии скелета толстые
+    radius = max(thick + 2, line // 2 + 2)           #точка шире линии, чтобы её было видно
 
     if points:
         for a, b in SKELETON:                        #линии скелета
             if points[a][3] > MIN_VIS and points[b][3] > MIN_VIS:
                 pa = (int(points[a][0] * width), int(points[a][1] * height))
                 pb = (int(points[b][0] * width), int(points[b][1] * height))
-                cv2.line(frame, pa, pb, GREEN, thick)
+                cv2.line(frame, pa, pb, DARK_GRAY, line)
         for x, y, z, vis, pres in points:            #сами 12 точек
             if vis > MIN_VIS:
-                cv2.circle(frame, (int(x * width), int(y * height)), thick + 2, RED, -1)
+                cv2.circle(frame, (int(x * width), int(y * height)), radius, ORANGE, -1)
 
     #Надписи через Pillow: OpenCV не умеет русские буквы
     image = Image.fromarray(frame)
     write(image, f"Повторы: {reps}", 20, int(15 * scale), int(48 * scale), YELLOW)
     if hint:
         write(image, HINTS[hint], 20, int(80 * scale), int(32 * scale), RED)
-    write(image, f"Модель: {fps:.0f} кадров/с", 20, height - int(45 * scale),
+    write(image, f"FPS: {fps:.0f}", 20, height - int(45 * scale),
           int(26 * scale), WHITE)
     frame[:] = np.asarray(image)                     #возвращаем картинку с надписями в кадр
 
