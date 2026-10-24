@@ -19,3 +19,5 @@ videos/
 
 #Личные служебные файлы, в репозиторий не входят
 TASK_HANDOFF.md
+CLAUDE.md
+check_style.py
