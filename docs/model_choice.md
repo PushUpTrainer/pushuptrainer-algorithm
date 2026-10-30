@@ -1,5 +1,7 @@
 # Сравнение моделей распознавания позы
 
+Как развернуть выбранную модель на телефоне через LiteRT, описано в документе [Развёртывание модели на телефоне](model_deployment.md).
+
 Берём **MediaPipe Pose Landmarker**. Для приложения на Kotlin Multiplatform у него самый надёжный путь:
 
 - официальные библиотеки для Android (Kotlin) и iOS (Swift Package Manager);
@@ -14,7 +16,7 @@
 | --- | --- | --- | --- | --- |
 | [MediaPipe Pose Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker) (Google) | 33, все наши 12 есть, у каждой видимость | Android: Kotlin, библиотека `tasks-vision`. iOS: Swift, через Swift Package Manager | Apache 2.0 | нет готовой KMP-библиотеки: модуль точек пишем под каждую платформу |
 | [ML Kit Pose Detection](https://developers.google.com/ml-kit/vision/pose-detection) (Google) | 33, та же разметка, что у MediaPipe | Android: Gradle. iOS: только CocoaPods (`GoogleMLKit/PoseDetection`) | бесплатно, модель закрытая | статус «бета» без гарантий; нет версии для компьютера; CocoaPods со 2 декабря 2026 не принимает новые версии |
-| [MoveNet](https://www.tensorflow.org/hub/tutorials/movenet) (Google) | 17, все наши 12 есть | через LiteRT (бывший TensorFlow Lite) на обеих | бесплатно | у LiteRT нет официальной поддержки KMP; подготовку кадра и разбор ответа модели писать самим, дважды |
+| [MoveNet](https://www.tensorflow.org/hub/tutorials/movenet) (Google) | 17, все наши 12 есть | через LiteRT (бывший TensorFlow Lite) на обеих | бесплатно | у LiteRT нет официальной поддержки KMP; подготовку кадра и разбор ответа модели писать самим |
 | [YOLO26-pose](https://docs.ultralytics.com/tasks/pose/) (Ultralytics) | 17, все наши 12 есть | после экспорта в TFLite для Android и CoreML для iOS | [AGPL-3.0](https://www.ultralytics.com/license) | код всего приложения пришлось бы открыть; обвязку писать самим |
 | [Apple Vision](https://developer.apple.com/documentation/vision/detecting-human-body-poses-in-images) | 19, все наши 12 есть | только iOS, встроено в систему | бесплатно | на Android не работает: пришлось бы держать две разные модели |
 
@@ -58,7 +60,7 @@ OpenPose из прошлой версии сравнения убрали: он 
 ## Риски и что проверить
 
 - **Два модуля точек могут разойтись.** Android и iOS могут по-разному поворачивать или зеркалить кадр. Ловим сверкой: CSV с телефона прогоняем через `replay_csv.py`, он сверяет счёт и предупреждает о повёрнутом или зеркальном кадре.
-- **Видеокарта на iOS.** В руководстве MediaPipe для iOS про ускорение на видеокарте ничего не сказано. Скорость lite и full на iPhone команды нужно замерить.
+- **Видеокарта на iOS.** MediaPipe Tasks на iOS умеет видеокарту через Metal ([model_deployment.md](model_deployment.md)). Скорость lite и full на iPhone команды на процессоре и на видеокарте нужно замерить.
 - **Размер приложения.** Модель добавляет от 6 до 31 МБ, плюс сама библиотека MediaPipe.
 - **Запасной вариант.** Если MediaPipe не заработает на каком-то телефоне, есть ML Kit с той же разметкой 33 точек: контракт и общий код не меняются. Но на iOS он ставится только через CocoaPods.
 - **Следим за KMP.** Когда импорт Swift-пакетов выйдет из альфы, iOS-модуль точек можно будет перенести со Swift на Kotlin.

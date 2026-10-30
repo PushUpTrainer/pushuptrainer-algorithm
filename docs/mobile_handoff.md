@@ -8,12 +8,14 @@
 
 - [Контракт данных](data_contract.md): `PoseFrame`, `PushupState`, код контракта на Kotlin и формат CSV. Это главный документ.
 - [Сравнение моделей](model_choice.md): почему MediaPipe, какая модель и как подключать на iOS.
-- [`pushup_logic.py`](../pushup_logic.py): эталон модуля отжиманий на Python (сигнал, сглаживание, пороги, подсказки).
+- [`pushup_logic.py`](../pushup_logic.py): эталон модуля отжиманий на Python (сигнал, сглаживание, пороги, подсказки, ошибки хвата).
 - [`replay_csv.py`](../replay_csv.py): прогоняет эталон по CSV с телефона, нужен для сверки.
 - Формат CSV для сверки: 66 колонок, раздел «CSV для сверки телефона и компьютера» в контракте.
-- В архиве: `models/` (файлы моделей full и lite, на которых работаем мы), `samples/` (записи с камеры в формате контракта) и `golden/` (ответы эталона по каждому кадру этих записей).
+- В архиве: `models/` (файлы моделей full и lite, на которых работаем мы: `.task` и извлечённые `litert/<вариант>/*.tflite`), `params.json` (пороги, окна и тексты счётчика, числа конвейера модели), `samples/` (записи с камеры в формате контракта) и `golden/` (ответы эталона по каждому кадру этих записей).
 
 ## Модуль точек на Android и iOS
+
+Как подключить модель через LiteRT, подробно в [model_deployment.md](model_deployment.md). По умолчанию путь 1: библиотека MediaPipe Tasks (внутри неё LiteRT 2.3.0), на Android `com.google.mediapipe:tasks-vision:1.1.1`, на iOS Swift Package `MediaPipeTasksVision`. Путь 2 (LiteRT напрямую, свой конвейер на Kotlin) нужен, только если путь 1 окажется медленным даже на видеокарте или понадобится полный контроль. Числа конвейера для пути 2 лежат в `params.json` архива.
 
 Настройки те же, что у нас на компьютере (`extract_pose.py` в репозитории ML-части, в архив он не входит):
 
@@ -21,6 +23,7 @@
 | --- | --- |
 | Модель | `pose_landmarker_full.task`, лежит внутри приложения. Берите файл из `models/` архива и сверяйте SHA-256 из его `README.md`: ссылка ниже ведёт на `latest`, и Google может обновить файл. Ссылка: <https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task> |
 | Запасная модель | `pose_landmarker_lite.task` для слабых телефонов, та же ссылка с `lite` вместо `full` |
+| Для пути 2 | `models/litert/full/` и `models/litert/lite/` архива: `pose_detector.tflite` и `pose_landmarks_detector.tflite`, извлечённые из `.task` |
 | Режим | LIVE\_STREAM (у нас на компьютере тоже LIVE\_STREAM) |
 | `numPoses` | 1 |
 | `minPoseDetectionConfidence`, `minPosePresenceConfidence`, `minTrackingConfidence` | по умолчанию, 0,5 |
@@ -34,7 +37,7 @@
 - **Время.** `timestampMs` из времени кадра камеры, строго растёт.
 - **Пропущенные кадры.** Пока модель занята, кадры пропускаются, `PoseFrame` для них нет. Это нормально.
 - **Нет человека.** Всё равно отправляем `PoseFrame` с `landmarks = null`.
-- **Без обработки.** Ничего не сглаживаем и не отбрасываем, значения MediaPipe как есть.
+- **Без обработки.** Значения MediaPipe как есть: MediaPipe сам их сглаживает, своего сглаживания и отсева не добавляем. На пути 2 сглаживание MediaPipe нужно повторить ([model_deployment.md](model_deployment.md), шаг 5).
 - **Порядок.** В модуль отжиманий передаём кадры по одному и по порядку времени.
 
 ## Модуль отжиманий в `commonMain`

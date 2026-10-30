@@ -30,8 +30,8 @@ import json
 import sys
 from pathlib import Path
 
-from pushup_logic import (L_SHOULDER, MIN_VIS, POINT_NAMES, R_SHOULDER, PushupCounter,
-                          frame_hint, shoulder_height)
+from pushup_logic import (ERRORS, L_SHOULDER, MIN_VIS, POINT_NAMES, R_SHOULDER, PushupCounter,
+                          frame_hint, grip_ratio, median, shoulder_height)
 
 FIELDS = ("x", "y", "z", "vis", "pres")
 
@@ -77,6 +77,7 @@ def replay(path):
     frames = detected = hints = 0
     shoulders = rotated = horizontal = mirrored = 0
     signals = upside_down = 0
+    grips, error_frames = [], 0
     first_ms = last_ms = 0
     for time_ms, width, height, points in read_frames(path):
         if frames == 0:
@@ -96,23 +97,36 @@ def replay(path):
         if signal is not None:
             signals += 1
             upside_down += signal < 0                #плечи ниже запястий
-        counter.update(signal)
+        grip = grip_ratio(points, width, height)
+        if grip is not None:
+            grips.append(grip)
+        counter.update(signal, grip)
+        error_frames += points is not None and bool(counter.errors)
     return {"frames": frames,
             "detected": share(detected, frames),
             "hints": share(hints, frames),
             "seconds": (last_ms - first_ms) / 1000,
             "reps": counter.reps,
+            "grip": median(grips) if grips else None,
+            "error_counts": counter.error_counts,
+            "judged": counter.judged_reps,
+            "error_frames": share(error_frames, detected),
             "rotated": share(rotated, shoulders),
             "upside_down": share(upside_down, signals),
             "mirrored": share(mirrored, horizontal)}
 
 
-def live_reps(path):
-    """Число повторов из .meta.json рядом с CSV или None."""
+def read_meta(path):
+    """Содержимое .meta.json рядом с CSV или пустой словарь."""
     meta = path.with_suffix(".meta.json")
     if not meta.exists():
-        return None
-    return json.loads(meta.read_text(encoding="utf-8")).get("reps_counted")
+        return {}
+    return json.loads(meta.read_text(encoding="utf-8"))
+
+
+def live_reps(path):
+    """Число повторов из .meta.json рядом с CSV или None."""
+    return read_meta(path).get("reps_counted")
 
 
 def read_labels():
@@ -131,7 +145,7 @@ def read_labels():
         return {}
     if not {"video", "reps"} <= columns:
         print("Внимание: в data/labels.csv нет колонок video и reps. Первая строка "
-              "должна быть video,reps,view,light,person, разделитель запятая")
+              "должна быть video,reps,view,light,person,grip, разделитель запятая")
         return {}
 
     labels = {}
@@ -148,6 +162,31 @@ def read_labels():
             continue
         labels[video] = int(value)
     return labels
+
+
+#Какую ошибку хвата ждём по разметке grip в labels.csv
+GRIP_LABELS = {"classic": None, "wide": "hands_too_wide", "narrow": "hands_too_narrow"}
+
+
+def read_grip_labels():
+    """Разметка хвата: имя записи и classic, wide или narrow. Пусто, если колонки нет."""
+    if not LABELS.exists():
+        return {}
+    try:
+        with open(LABELS, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+    except UnicodeDecodeError:
+        return {}
+    return {(row.get("video") or "").strip(): (row.get("grip") or "").strip()
+            for row in rows if (row.get("grip") or "").strip() in GRIP_LABELS}
+
+
+def grip_correct(grip_label, judged, error_counts):
+    """Сколько оценённых по хвату повторов получили ту оценку, что в разметке."""
+    expected = GRIP_LABELS[grip_label]
+    if expected is None:
+        return judged - sum(error_counts.values())
+    return error_counts.get(expected, 0)
 
 
 def csv_files(target):
@@ -185,9 +224,14 @@ def main():
         sys.exit(1)
 
     labels = read_labels()                           #до таблицы, чтобы предупреждения не рвали её
+    grip_labels = read_grip_labels()
+    #Метрика E8 по каждому хвату: верно, оценено, не оценено; доля кадров с ошибкой на экране
+    grip_stats = {label: [0, 0, 0] for label in GRIP_LABELS}
+    classic_error_frames = []
     print(f"{'файл':<40} {'кадров':>7} {'секунд':>7} {'человек':>8} "
-          f"{'подсказки':>10} {'повторы':>8} {'вживую':>7} {'факт':>5}")
-    warnings, errors = [], []
+          f"{'подсказки':>10} {'повторы':>8} {'вживую':>7} {'факт':>5} {'хват':>5} "
+          f"{'с ошибкой':>9}")
+    warnings, errors, technique = [], [], []
     for path in files:
         result = replay(path)
         live = live_reps(path)
@@ -197,7 +241,25 @@ def main():
         print(f"{path.name:<40} {result['frames']:>7} {result['seconds']:>7.1f} "
               f"{result['detected']:>8.0%} {result['hints']:>10.0%} "
               f"{result['reps']:>8} {'' if live is None else live:>7} "
-              f"{'' if truth is None else truth:>5}")
+              f"{'' if truth is None else truth:>5} "
+              f"{'' if result['grip'] is None else format(result['grip'], '.2f'):>5} "
+              f"{sum(result['error_counts'].values()):>9}")
+        label = grip_labels.get(path.stem)
+        if label:
+            stats = grip_stats[label]
+            stats[0] += grip_correct(label, result["judged"], result["error_counts"])
+            stats[1] += result["judged"]
+            stats[2] += result["reps"] - result["judged"]
+            if label == "classic":
+                classic_error_frames.append(result["error_frames"])
+        live_errors = read_meta(path).get("error_counts")
+        if live_errors is not None:
+            live = {code.lower(): count for code, count in live_errors.items() if count}
+            if live != result["error_counts"]:
+                technique.append(f"{path.name}: ошибки вживую из .meta.json {live} "
+                                 f"не совпадают с прогоном {result['error_counts']}")
+        for code, count in sorted(result["error_counts"].items()):
+            technique.append(f"{path.name}: {ERRORS[code].lower()} в {count} повт.")
         #Проверки по порядку: при неповёрнутом или перевёрнутом кадре
         #проверка зеркала даёт случайный ответ, поэтому её не печатаем
         if result["rotated"] > WARN_SHARE:
@@ -213,6 +275,16 @@ def main():
         exact = sum(error == 0 for error in errors) / len(errors)
         print(f"Размечено записей: {len(errors)}. Ошибка счёта: "
               f"{sum(errors) / len(errors):.2f} повтора на запись, точных записей: {exact:.0%}")
+    for label, (ok, judged, unjudged) in grip_stats.items():
+        if judged or unjudged:
+            print(f"Хват {label}: верно оценён в {ok} из {judged} повторов"
+                  + (f" ({ok / judged:.0%})" if judged else "")
+                  + (f", не оценено (мало кадров с хватом): {unjudged}" if unjudged else ""))
+    if classic_error_frames:
+        print(f"Ложные ошибки на экране при классическом хвате: "
+              f"{sum(classic_error_frames) / len(classic_error_frames):.1%} кадров с человеком")
+    for line in technique:
+        print("Ошибка техники:", line)
     for warning in warnings:
         print("Внимание:", warning)
 

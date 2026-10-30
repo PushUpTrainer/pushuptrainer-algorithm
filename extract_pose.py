@@ -36,8 +36,8 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from pushup_logic import (HINTS, MEDIAPIPE_IDS, MIN_VIS, POINT_NAMES, SKELETON,
-                          PushupCounter, frame_hint, shoulder_height)
+from pushup_logic import (ERRORS, HINTS, MEDIAPIPE_IDS, MIN_VIS, POINT_NAMES, SKELETON,
+                          PushupCounter, frame_hint, grip_ratio, shoulder_height)
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
              "pose_landmarker_{m}/float16/latest/pose_landmarker_{m}.task")
@@ -130,8 +130,8 @@ def write(image, text, x, y, size, color):
     image.paste(picture, (x, y), picture)
 
 
-def draw(frame, points, reps, hint, fps):
-    """Рисует на кадре 12 точек, скелет, счётчик, подсказку и скорость."""
+def draw(frame, points, reps, hint, fps, errors=()):
+    """Рисует на кадре 12 точек, скелет, счётчик, подсказку, ошибки техники и скорость."""
     height, width = frame.shape[:2]
     scale = width / 800                              #размеры под размер кадра
     thick = max(2, int(3 * scale))
@@ -151,8 +151,13 @@ def draw(frame, points, reps, hint, fps):
     #Надписи через Pillow: OpenCV не умеет русские буквы
     image = Image.fromarray(frame)
     write(image, f"Повторы: {reps}", 20, int(15 * scale), int(48 * scale), YELLOW)
+    line_y = int(80 * scale)
     if hint:
-        write(image, HINTS[hint], 20, int(80 * scale), int(32 * scale), RED)
+        write(image, HINTS[hint], 20, line_y, int(32 * scale), RED)
+        line_y += int(45 * scale)
+    for error in sorted(errors):                     #ошибки техники под подсказкой
+        write(image, ERRORS[error], 20, line_y, int(32 * scale), ORANGE)
+        line_y += int(45 * scale)
     write(image, f"FPS: {fps:.0f}", 20, height - int(45 * scale),
           int(26 * scale), WHITE)
     frame[:] = np.asarray(image)                     #возвращаем картинку с надписями в кадр
@@ -214,7 +219,8 @@ def run_webcam(camera, model_name, model_path):
                 del sent[next(iter(sent))]
             no, width, height = sent.pop(time_ms)
             table.writerow(csv_row(name, no, time_ms, width, height, points))
-            counter.update(shoulder_height(points, width, height))
+            counter.update(shoulder_height(points, width, height),
+                           grip_ratio(points, width, height))
             hint = frame_hint(points, width, height)
             processed += 1
             recent.append(time.monotonic())
@@ -249,7 +255,7 @@ def run_webcam(camera, model_name, model_path):
                 fps = 0
                 if len(recent) > 1:
                     fps = (len(recent) - 1) / (recent[-1] - recent[0])
-                draw(frame, points, counter.reps, hint, fps)
+                draw(frame, points, counter.reps, hint, fps, counter.errors)
                 cv2.imshow(WINDOW, frame)
                 if (cv2.waitKey(1) & 0xFF) == ESC or window_closed():
                     break
@@ -267,7 +273,7 @@ def run_webcam(camera, model_name, model_path):
             "frames": frame_no, "processed": processed,
             "camera_fps": round(camera_fps, 1),
             "processing_fps": round(camera_fps * processed / frame_no, 1) if frame_no else 0,
-            "reps_counted": counter.reps}
+            "reps_counted": counter.reps, "error_counts": {code.upper(): count for code, count in counter.error_counts.items()}}
     (csv_dir / f"{name}.meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Готово: насчитано отжиманий: {counter.reps}. Кадров с камеры: {frame_no}, "

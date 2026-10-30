@@ -196,7 +196,7 @@ logic.DOWN_LEVEL, logic.UP_LEVEL = 0.85, 0.95  #для него нужны св�
 print(count(frames, by_arm))  #8, как в разметке
 ```
 
-Параметры из `pushup_logic.py` можно так менять прямо из своего скрипта, не трогая сам файл. `MIN_VIS`, `DOWN_LEVEL` и `UP_LEVEL` действуют сразу. `SMOOTH_WINDOW` и `TOP_WINDOW` счётчик берёт при создании, поэтому после их смены нужен новый `PushupCounter()` (функция `count` создаёт его сама). Изменение живёт, пока работает скрипт или консоль.
+Параметры из `pushup_logic.py` можно так менять прямо из своего скрипта, не трогая сам файл. `MIN_VIS`, `DOWN_LEVEL`, `UP_LEVEL`, `GRIP_NARROW`, `GRIP_WIDE` и `GRIP_MIN` действуют сразу. `SMOOTH_WINDOW`, `TOP_WINDOW` и `GRIP_WINDOW` счётчик берёт при создании, поэтому после их смены нужен новый `PushupCounter()` (функция `count` создаёт его сама). Изменение живёт, пока работает скрипт или консоль.
 
 Отдельная точка из `points`, например левое запястье: `points[logic.L_WRIST]`, его видимость `points[logic.L_WRIST][3]`.
 
@@ -262,7 +262,7 @@ meta = json.loads(Path("samples/webcam_20261017_115256.meta.json").read_text(enc
 print(meta["reps_counted"])  #сколько повторов счётчик насчитал вживую
 ```
 
-В новых записях есть поле `mode` (`LIVE_STREAM`), а ещё `frames` (сколько кадров дала камера), `processed` (сколько обработала модель, столько строк в CSV), `camera_fps` и `processing_fps`. Если поля `mode` нет, запись старая, как в `samples/`: там `frames` значит число строк CSV, а надёжно только `reps_counted`.
+В новых записях есть поле `mode` (`LIVE_STREAM`), а ещё `frames` (сколько кадров дала камера), `processed` (сколько обработала модель, столько строк в CSV), `camera_fps`, `processing_fps` и `error_counts` (сколько засчитанных повторов сделано с каждой ошибкой хвата). Если поля `mode` нет, запись старая, как в `samples/`: там `frames` значит число строк CSV, а надёжно только `reps_counted`.
 
 ## Частые ошибки
 

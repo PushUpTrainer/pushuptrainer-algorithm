@@ -69,6 +69,21 @@ HINTS = {
     "too_close": "Слишком близко к камере",
 }
 
+#Классический хват: руки чуть шире плеч. Хват меряем как расстояние между
+#запястьями, делённое на ширину плеч (у классического примерно от 1,3 до 1,7).
+#Пороги стартовые, их подбирают в эксперименте E8.
+GRIP_NARROW = 1.1   #уже этого: руки слишком близко друг к другу
+GRIP_WIDE = 2.0     #шире этого: руки слишком далеко друг от друга
+GRIP_WINDOW = 15    #хват для экрана: медиана за последние 15 кадров с хватом;
+                    #столько кадров подряд без хвата: окно очищается, ошибка гаснет
+GRIP_MIN = 5        #меньше стольких значений хвата (за окно или за повтор): не судим, не меньше 1
+
+#Ошибки техники: код и текст для экрана
+ERRORS = {
+    "hands_too_wide": "Руки слишком широко",
+    "hands_too_narrow": "Руки слишком узко",
+}
+
 
 def px(points, i, width, height):
     """Точка номер i в пикселях: (x, y)."""
@@ -108,6 +123,38 @@ def shoulder_height(points, width, height):
     wrists_y = (points[L_WRIST][1] + points[R_WRIST][1]) / 2 * height
     #В картинке y растёт ВНИЗ, поэтому «плечи выше» значит y плеч меньше y запястий
     return (wrists_y - shoulders_y) / sw
+
+
+def grip_ratio(points, width, height):
+    """
+    Ширина хвата: расстояние между запястьями, делённое на ширину плеч.
+    Возвращает None, если плечи или запястья плохо видны, а ещё если плечи
+    в кадре уже порога «слишком далеко»: человек далеко или стоит боком,
+    и деление на почти нулевую ширину плеч даёт случайные большие числа.
+    """
+    if points is None or not visible(points, [L_SHOULDER, R_SHOULDER, L_WRIST, R_WRIST]):
+        return None
+    sw = shoulder_width(points, width, height)
+    if sw < 1 or sw / width < TOO_FAR_WIDTH:
+        return None
+    return distance(px(points, L_WRIST, width, height),
+                    px(points, R_WRIST, width, height)) / sw
+
+
+def median(values):
+    """Медиана как в счётчике: при чётном числе значений большее из двух средних."""
+    return sorted(values)[len(values) // 2]
+
+
+def grip_errors(ratio):
+    """Ошибки хвата по его ширине: множество кодов из ERRORS (пустое, если хват нормальный)."""
+    if ratio is None:
+        return set()
+    if ratio > GRIP_WIDE:
+        return {"hands_too_wide"}
+    if ratio < GRIP_NARROW:
+        return {"hands_too_narrow"}
+    return set()
 
 
 def angle(a, b, c):
@@ -174,9 +221,31 @@ class PushupCounter:
         self.smoothed = None             #сглаженное значение сигнала
         self.history = deque(maxlen=TOP_WINDOW)   #сглаженные значения за TOP_WINDOW кадров с сигналом
         self.lowest = None               #самая нижняя точка текущего повтора
+        self.grips = deque(maxlen=GRIP_WINDOW)  #последние значения хвата
+        self.rep_grips = []              #хват на кадрах текущего повтора, пока человек «внизу»
+        self.errors = set()              #ошибки техники сейчас, для экрана
+        self.error_counts = {}           #сколько засчитанных повторов сделано с каждой ошибкой
+        self.judged_reps = 0             #сколько засчитанных повторов оценено по хвату (для E8)
+        self.no_grip = 0                 #сколько кадров подряд без хвата
 
-    def update(self, value):
-        """Даём счётчику сигнал с нового кадра. Возвращает число повторов."""
+    def update(self, value, grip=None):
+        """
+        Даём счётчику сигнал и хват с нового кадра. Возвращает число повторов.
+        Хват (grip_ratio) нужен только для ошибок техники, на счёт он не влияет.
+        """
+        if grip is not None:
+            self.no_grip = 0
+            self.grips.append(grip)
+            if self.state == "down":
+                self.rep_grips.append(grip)
+        else:
+            #Человек ушёл или руки долго не видны: старый хват больше не показываем
+            self.no_grip += 1
+            if self.no_grip >= GRIP_WINDOW:
+                self.grips.clear()
+        enough = len(self.grips) >= max(GRIP_MIN, 1)
+        self.errors = grip_errors(median(self.grips)) if enough else set()
+
         if value is None:                #точек не видно: пропускаем кадр
             return self.reps
 
@@ -195,6 +264,7 @@ class PushupCounter:
             if self.smoothed < DOWN_LEVEL * self.top:
                 self.state = "down"      #опустился
                 self.lowest = self.smoothed
+                self.rep_grips = [] if grip is None else [grip]
         else:
             self.lowest = min(self.lowest, self.smoothed)
             if self.smoothed > UP_LEVEL * self.top:
@@ -203,4 +273,13 @@ class PushupCounter:
                 #Это защита от ложного повтора, когда «верх» пересчитался после скачка.
                 if self.lowest < DOWN_LEVEL * self.top:
                     self.reps += 1
+                    #Ошибка повтора: по медиане хвата, пока человек был «внизу»
+                    #В rep_grips входят и кадр перехода «вниз», и кадр перехода «вверх»
+                    if len(self.rep_grips) >= max(GRIP_MIN, 1):
+                        self.judged_reps += 1
+                        rep_errors = grip_errors(median(self.rep_grips))
+                    else:
+                        rep_errors = set()
+                    for error in rep_errors:
+                        self.error_counts[error] = self.error_counts.get(error, 0) + 1
         return self.reps
