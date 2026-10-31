@@ -43,8 +43,8 @@ ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "output"
 NAME = f"pushup_mobile_v{VERSION}"
 
-DOCS = ["mobile_handoff.md", "data_contract.md", "model_deployment.md", "model_choice.md",
-        "modules_experiments.md"]
+DOCS = ["mobile_handoff.md", "data_contract.md", "model_deployment.md", "why_tflite_unchanged.md",
+        "model_choice.md", "modules_experiments.md"]
 CODE = ["pushup_logic.py", "replay_csv.py"]
 MODELS = ["full", "lite"]
 
@@ -332,8 +332,9 @@ def readme(commit, dirty, models, samples, labels):
 1. [docs/mobile_handoff.md](docs/mobile_handoff.md): короткая памятка, что сделать в приложении.
 2. [docs/data_contract.md](docs/data_contract.md): главный документ. `PoseFrame`, `PushupState`, код контракта на Kotlin и формат CSV.
 3. [docs/model_deployment.md](docs/model_deployment.md): как запустить модель через LiteRT, путь 1 (MediaPipe Tasks) и путь 2 (LiteRT напрямую).
-4. [docs/model_choice.md](docs/model_choice.md): почему MediaPipe.
-5. [docs/modules_experiments.md](docs/modules_experiments.md): зачем два модуля и как аналитик подбирает параметры. Для общего понимания.
+4. [docs/why_tflite_unchanged.md](docs/why_tflite_unchanged.md): почему сами модели под телефоны не меняем и что настраивать вместо этого.
+5. [docs/model_choice.md](docs/model_choice.md): почему MediaPipe.
+6. [docs/modules_experiments.md](docs/modules_experiments.md): зачем два модуля и как аналитик подбирает параметры. Для общего понимания.
 
 ## Что внутри
 
