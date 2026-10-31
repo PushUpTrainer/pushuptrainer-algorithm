@@ -21,7 +21,7 @@
 
 | Настройка | Значение |
 | --- | --- |
-| Модель | `pose_landmarker_full.task`, лежит внутри приложения. Берите файл из `models/` архива и сверяйте SHA-256 из его `README.md`: ссылка ниже ведёт на `latest`, и Google может обновить файл. Ссылка: <https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task> |
+| Модель | `pose_landmarker_full.task`, лежит внутри приложения. Берите файл из `models/` архива или репозитория и сверяйте SHA-256 из его `README.md`: ссылка ниже ведёт на `latest`, и Google может обновить файл. Ссылка: <https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task> |
 | Запасная модель | `pose_landmarker_lite.task` для слабых телефонов, та же ссылка с `lite` вместо `full` |
 | Для пути 2 | `models/litert/full/` и `models/litert/lite/` архива: `pose_detector.tflite` и `pose_landmarks_detector.tflite`, извлечённые из `.task` |
 | Режим | LIVE\_STREAM (у нас на компьютере тоже LIVE\_STREAM) |

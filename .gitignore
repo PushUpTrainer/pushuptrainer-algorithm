@@ -4,8 +4,10 @@ venv/
 __pycache__/
 .idea/
 
-#Модели скачиваются сами при первом запуске
-models/
+#Модели: full и lite лежат в репозитории, остальные (heavy) скачиваются сами при первом запуске
+models/*
+!models/pose_landmarker_full.task
+!models/pose_landmarker_lite.task
 
 #Записи с камеры и результаты, их можно получить заново
 output/
